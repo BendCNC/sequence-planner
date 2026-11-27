@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plegado EXPERIMENTAL V4 · Pieza y prensa</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="./style.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./"><span class="brandmark">⌁</span><strong>PLEGADO</strong><span class="tag">EXPERIMENTAL V4</span></a>
+    <div class="file-meta"><span class="eyebrow">PIEZA ACTIVA</span><span id="partName">Cargando modelo…</span></div>
+    <button id="openImport" class="primary">Abrir pieza</button>
+    <a class="audit-link" href="../README-EXPERIMENTAL.md" target="_blank" rel="noopener">Acerca de esta copia ↗</a>
+  </header>
+  <main class="workspace">
+    <section class="stage" aria-label="Simulación tridimensional">
+      <div id="viewport"></div>
+      <div class="stage-heading"><span class="eyebrow">SIMULACIÓN GEOMÉTRICA</span><h1 id="sceneTitle">Pieza y prensa.</h1><p id="stageSubtitle">Herramientas reales · segmentos independientes</p></div>
+      <div class="view-tools"><button id="fitView">Encuadrar todo</button><button id="partView">Pieza</button><button id="topView" title="Vista superior con perspectiva; frente abajo.">Superior</button><button id="topOrthoView" title="Vista superior ortográfica; frente abajo. Arrastra para desplazar; rueda para acercar.">Superior sin perspectiva</button><button id="sideView" title="Desde la derecha, sin perspectiva. Arrastra para desplazar; rueda para acercar.">Lateral derecho</button><button id="leftView" title="Desde la izquierda, sin perspectiva. Arrastra para desplazar; rueda para acercar.">Lateral izquierdo</button><button id="isoView">Vista 3D</button></div>
+      <div id="loading" class="loading"><span class="spinner"></span><p id="loadingText">Preparando geometría…</p></div>
+      <div id="failure" class="failure" hidden role="alert"></div>
+      <div class="stage-bottom">
+        <div id="stageBadges" class="badges"><span id="phaseBadge" class="phase-badge">Aproximación</span><span id="collisionBadge" class="collision-badge pending">Comprobación pendiente</span></div>
+        <div class="stage-footer"><span class="orbit-help" id="cameraHint">Arrastra para girar · Rueda para acercar · mm</span>
+          <button id="toggleLabels" type="button" aria-controls="viewport stageBadges">Ocultar etiquetas</button>
+        </div>
+      </div>
+    </section>
+    <aside class="inspector">
+      <div class="mode-switch"><button id="machineMode" class="active">En prensa</button><button id="freeMode">Plegado libre</button><button id="sequenceMode" disabled>Secuencia</button></div>
+      <section id="associationPanel" class="association-status" hidden aria-label="Asociación STEP y BEND">
+        <strong id="associationTitle"></strong><p id="associationMessage"></p>
+      </section>
+      <section id="embeddedStepPanel" class="embedded-step" hidden aria-label="STEP adjunto de la pieza">
+        <strong id="embeddedStepLabel"></strong><span id="embeddedStepName"></span>
+        <p>Descarga una copia verificada del modelo CAD adjunto.</p>
+        <button id="extractEmbeddedStep" class="text-button">Extraer STEP</button>
+        <a id="embeddedStepDownload" hidden download>Descargar STEP extraído</a>
+        <p id="embeddedStepStatus" role="status"></p>
+      </section>
+      <section class="sequence-search">
+        <a id="partialReviewLink" hidden href="../analysis/part-001/press.html">Ver los cinco pliegues y revisar B4 / B5 en prensa</a>
+        <a id="sm1StationLink" hidden href="?ejemplo=sm1-step&amp;montaje=dos-estaciones&amp;calcular=secuencia">Probar SM1 con el 3169 y el 3924 en dos estaciones fijas</a>
+        <button id="planSequence" class="primary">Calcular secuencia de esta pieza</button>
+        <label class="check"><input id="partialBends" type="checkbox" checked> Probar prepliegues intermedios</label>
+        <p class="sequence-status">Primero se prueban los pliegues cortos con un montaje reutilizable. Se permite acortar las herramientas para evitar choques, respetando el margen de extremos.</p>
+        <label class="field">Extremo sin contacto máx. · mm<input id="endAllowance" type="number" min="0" step="0.1" value="12.7"></label>
+        <label class="field">Tiempo de búsqueda por intento<select id="searchBudget"><option value="30000">30 segundos</option><option value="120000">2 minutos</option><option value="300000">5 minutos</option><option value="600000" selected>10 minutos</option></select></label>
+        <label class="check"><input id="experimentalFallback" type="checkbox" checked aria-describedby="experimentalHelp"> Probar búsqueda ampliada si la normal falla</label>
+        <p id="experimentalHelp" class="sequence-status"><strong>EXPERIMENTAL V4.</strong> Conserva las rutas encontradas. Si la búsqueda habitual falla, prueba más orientaciones, montajes por zonas, prepliegues y movimientos coordinados del punzón y la pieza. Hasta cuatro intentos del tiempo seleccionado: con 10 minutos, hasta 40 minutos de búsqueda. Las comprobaciones finales pueden añadir tiempo. La compatibilidad del portaherramientas invertido no está modelada.</p>
+        <p id="sequenceStatus" class="sequence-status" role="status">Se evaluarán orden, orientación hacia el operador, herramientas y acceso frontal para la pieza cargada.</p>
+        <button id="openRejection" type="button" hidden>Ver motivo del rechazo</button>
+        <details id="sequenceBlockers" hidden><summary>Ver bloqueos del último pliegue</summary><div id="sequenceBlockerDetails" class="sequence-status"></div></details>
+        <button id="downloadSequence" class="text-button" disabled>Guardar resultado</button>
+        <button id="cancelJob" class="text-button" hidden>Cancelar cálculo / movimiento</button>
+      </section>
+      <section id="sequenceControls" hidden>
+        <div id="sequenceSteps" class="bend-list"></div>
+        <label class="field">Fase<select id="sequencePhase"><option value="all">Reproducción continua</option><option value="entry">Entrada frontal</option><option value="gauge">Posicionar backgauge</option><option value="ungauge">Retraer backgauge</option><option value="approach">Aproximación del punzón</option><option value="fold">Plegado</option><option value="retract">Retracción comprobada</option><option value="exit">Retirar pieza</option><option value="transfer">Traslado exterior</option></select></label>
+        <p id="sequenceDetail" class="sequence-status"></p>
+      </section>
+      <div class="inspector-title"><span class="eyebrow">OPERACIÓN ACTIVA</span><span id="bendCount" class="count">—</span></div>
+      <section id="backgaugeControls" class="embedded-step">
+        <strong>BACKGAUGE · 2 FINGERS</strong>
+        <div class="field-pair"><label class="field">Separación · mm<input id="fingerSeparation" type="number" value="100" min="51" step="1"></label><label class="field">Centro en mesa · mm<input id="fingerCenter" type="number" value="0" step="1"></label></div>
+        <button id="viewFingers" class="text-button">Ver fingers en posición de referencia</button>
+        <p id="backgaugeStatus" role="status"></p>
+        <p>Separación de referencia, no medida. Y fijo durante el ciclo; X/R comunes. Se conserva una separación visual de 0.3 mm al borde. Recorridos de máquina y escuadra pendientes de calibrar.</p>
+      </section>
+      <div id="bendList" class="bend-list"></div>
+      <div class="bend-detail"><strong id="selectedId">—</strong><span id="selectedAngle">—</span><span id="selectedRadius">—</span></div>
+      <div class="sequence-tools"><span id="operationIndex">Orden ilustrativo</span><button id="earlierBend" title="Adelantar operación">← Antes</button><button id="laterBend" title="Retrasar operación">Después →</button></div>
+      <section id="machineControls">
+        <label class="field">Punzón<select id="punchSelect"></select></label>
+        <label class="field">Matriz<select id="dieSelect"></select></label>
+        <div class="field-pair"><label class="field">Mesa · longitud mm<input id="bedLength" type="number" min="50" max="6000" value="838.2" step="1"></label><label class="check"><input id="flipPart" type="checkbox">Girar pieza 180°</label></div>
+        <div class="inspector-title section-title"><span class="eyebrow">SEGMENTOS</span><button id="resetSegments" class="text-button">Restablecer</button></div>
+        <div id="segmentList" class="segment-list"></div>
+        <div class="segment-editor">
+          <div class="segment-title"><strong id="segmentName">Selecciona un segmento</strong><span id="segmentPosition">—</span></div>
+          <div class="field-pair"><label class="field">Longitud · mm<input id="segmentLength" type="number" min="5" max="3000" step=".1"></label><label class="field">Destino Y · mm<input id="moveTarget" type="number" step=".1"></label></div>
+          <div class="button-row"><button id="moveSegment">Comprobar y mover</button><button id="removeSegment" class="text-button">Quitar</button></div>
+        </div>
+        <div class="button-row"><button id="addPunch">+ Punzón</button><button id="addDie">+ Matriz</button></div>
+        <div class="button-row main-actions"><button id="optimize" class="primary">Buscar distribución</button><button id="scan">Revisar ciclo</button></div>
+        <div id="jobStatus" class="job-status" role="status">Selecciona un segmento para desplazarlo.</div>
+        <div id="collisionDetails" class="collision-details"></div>
+        <div id="coverageStatus" class="coverage-status" role="status"></div>
+        <details class="scope"><summary>Alcance de la comprobación</summary><p>Interferencias entre pieza, herramientas, mesa, fingers y todos los paneles y bandas. Se excluyen uniones de la chapa y superficies de montaje. Holgura comprobada: 0.15 mm; separación visual de contacto: 0.3 mm.</p><p>Al pulsar reproducir en prensa se comprueban la entrada, el plegado, la subida del punzón, la salida de la pieza y los topes de la operación activa. Sólo se anima si todos esos recorridos pasan. Esto no equivale a una secuencia completa de la pieza. «Revisar ciclo» conserva la revisión de 17 posiciones de la operación sin salida. Los recorridos se revisan en posiciones discretas. No es detección continua ni simulación de fuerzas, sujeción o recuperación elástica. La búsqueda conserva las longitudes configuradas y admite juntas de hasta 0.5 mm en la cobertura. No incluye portapunzón ni bastidor de la máquina.</p></details>
+      </section>
+      <section id="freeControls" hidden>
+        <label class="field">Movimiento<select id="mode"><option value="sequential">Secuencial</option><option value="simultaneous">Simultáneo</option></select></label>
+        <label class="check"><input id="referenceToggle" type="checkbox">Referencia STEP final</label>
+      </section>
+      <div class="display-options"><label class="check"><input id="edgesToggle" type="checkbox" checked>Contornos</label><label class="check"><input id="toolTransparency" type="checkbox">Herramientas transparentes</label></div>
+      <div id="validation" class="validation"><strong id="validationTitle">Comprobando geometría</strong><span id="validationText">—</span></div>
+    </aside>
+  </main>
+  <footer class="transport"><button id="play" class="play" disabled aria-label="Reproducir animación">▶</button><div class="timeline"><div class="timeline-caption"><span id="modeCaption">Ciclo de la operación activa</span><output id="progressText">0%</output></div><input id="progress" type="range" min="0" max="1000" value="0" aria-label="Progreso" disabled><div class="timeline-ends"><button id="flatButton">Inicio · abierto</button><button id="finalButton">Final · punzón arriba</button></div></div><label class="duration">Duración<select id="duration"><option value="16">16 segundos</option><option value="30">30 segundos</option><option value="8">8 segundos</option></select></label></footer>
+  <dialog id="importDialog"><form method="dialog"><button class="dialog-close" aria-label="Cerrar">×</button></form><span class="eyebrow">GEOMETRÍA DE LA PIEZA</span><h2>Abrir otra pieza</h2><p>Importa un BCBEND, un STEP de chapa o un modelo JSON preparado. La geometría y la secuencia se calculan para el archivo seleccionado.</p><label class="field">Ejemplos disponibles<select id="exampleSelect"></select></label><button id="loadExample" class="primary">Abrir ejemplo</button><hr><div class="field-pair"><label class="field">Factor K · STEP<input id="kFactor" type="number" min=".05" max=".95" step=".01" value=".44"></label><label class="field">Cara base STEP · 0 = automática<input id="rootFace" type="number" min="0" value="0"></label></div><label class="field">Sentido de los pliegues · BCBEND<select id="signConvention"><option value="auto">Declarado en el archivo</option><option value="directed-positive">Según orientación de los ejes</option><option value="direction-child">UP/DOWN relativo al panel</option></select></label><p class="sequence-status">Usa una convención explícita solamente si corresponde al exportador del archivo. La elección quedará registrada en el modelo.</p><label class="check"><input id="useEmbeddedStep" type="checkbox" checked>Asociar el STEP embebido con los pliegues</label><p class="sequence-status">Usa la geometría CAD y conserva los nombres BEND si la correspondencia es única. Si no coincide, informa el motivo y utiliza la geometría nominal cuando sea posible.</p><label class="file-label">Elegir archivo BCBEND / BEND / STEP / JSON<input id="fileInput" type="file" accept=".bcbend,.bend,.step,.stp,.json"></label><p id="importStatus" role="status">El archivo se procesa localmente en este workspace.</p><section id="importEmbeddedStepPanel" class="embedded-step" hidden aria-label="STEP adjunto del archivo seleccionado"><strong id="importEmbeddedStepLabel"></strong><span id="importEmbeddedStepName"></span><p>El adjunto se puede extraer aunque la geometría necesite revisión.</p><button id="importExtractEmbeddedStep" class="text-button">Extraer STEP</button><a id="importEmbeddedStepDownload" hidden download>Descargar STEP extraído</a><p id="importEmbeddedStepStatus" role="status"></p></section></dialog>
+  <dialog id="rejectionDialog" aria-labelledby="rejectionTitle" aria-describedby="rejectionSummary">
+    <form method="dialog"><button class="dialog-close" aria-label="Cerrar diagnóstico" autofocus>×</button></form>
+    <h2 id="rejectionTitle"></h2>
+    <p id="rejectionSummary"></p>
+    <div id="rejectionCases"></div>
+    <div id="rejectionLegend" aria-label="Leyenda"><span class="punch">Punzón</span><span class="die">Matriz</span><span class="part">Pieza</span><span class="fixture">Mesa / elevador</span><span class="finger">Finger</span><span class="contact">Contacto</span><span class="margin">Holgura insuficiente</span></div>
+    <nav id="rejectionNav" aria-label="Más casos de rechazo"><button id="previousCases">Anterior</button><span id="rejectionPage" aria-live="polite"></span><button id="nextCases">Siguiente</button></nav>
+  </dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.model.json
+*.plan.json
+node_modules/
