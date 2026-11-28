@@ -5,7 +5,7 @@ import {withToolingRules} from './tooling-rules.mjs';
 import {buildExteriorTransfers} from './sequence-playback.mjs';
 import {assessCoverage} from './coverage.mjs';
 import {sceneWithAmounts} from './sequence-scene.mjs';
-import {autoFingerLayout,planBackgauge,parkingPose} from './backgauge.mjs';
+import {autoFingerLayout,planBackgauge,planBackgaugeOnPanel,parkingPose} from './backgauge.mjs';
 import {assessToolSupport,toolSupportPolicy} from './tool-support-policy.mjs';
 import {evaluateSequenceTransition} from './sequence-transition.mjs';
 
@@ -44,7 +44,36 @@ export function finishSequencePlan(model,catalog,result,options={maxUnsupportedE
 /** Material/thickness tooling preference: plan with the preferred punch/die
  * first; if that yields no complete route, run the normal tooling search. */
 export async function planCompleteSequence(payload,onProgress=()=>{}){
-  return withToolingRules(payload,onProgress,planWithRules);
+  const result=await withToolingRules(payload,onProgress,planWithRules);
+  addFlangeGaugeOption(payload.model,payload.catalog,result,payload.options??{});
+  return result;
+}
+
+/** Operator option, computed once on the final plan only (never during the
+ * search): for strokes whose widest-spacing fingers rest on another panel,
+ * try both fingers on the rear edge of the flange being bent. Route and
+ * tooling are unchanged; only finger X/R/Y differ. Bounded by
+ * options.flangeGaugeBudgetMs (default 300 ms); skipped when out of time. */
+export function addFlangeGaugeOption(model,catalog,result,options){
+  if(!options.backgauge||options.backgauge.fixedStations||!catalog?.fingerDefinition||
+    !result?.completeGeometricRouteSampleClear||!result.backgaugeSampleClear||options.flangeGaugeBudgetMs===0)return result;
+  const started=performance.now(),budget=options.flangeGaugeBudgetMs??300;
+  const steps=[];let skipped=0;
+  for(const [i,stage]of result.stages.entries()){
+    const bend=model.bends.find(b=>String(b.id)===String(stage.bendId));
+    const x=stage.panelX??{},ids=bend?[bend.parentPanelId,bend.childPanelId]:[];
+    const flange=ids.filter(id=>Number.isFinite(x[id])).sort((a,b)=>x[b]-x[a])[0];
+    if(flange===undefined||!(x[flange]>0))continue;
+    const current=stage.backgauge;
+    if(current?.contacts?.every(k=>!k.used||k.witness?.bodyId===`panel:${flange}`))continue;
+    if(performance.now()-started>budget){skipped++;continue;}
+    const scene=sceneWithAmounts(model,catalog,stage.access.entry.config,stage.from);
+    const alt=planBackgaugeOnPanel({scene,definition:catalog.fingerDefinition,settings:options.backgauge,
+      park:current.park},flange);
+    if(alt)steps.push({stageIndex:i,bendId:stage.bendId,panelId:flange,backgauge:alt});
+  }
+  if(steps.length)result.flangeGaugeOption={steps,elapsedMs:performance.now()-started,skippedForBudget:skipped};
+  return result;
 }
 
 async function planWithRules(payload,onProgress){

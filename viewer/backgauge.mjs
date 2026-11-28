@@ -107,7 +107,7 @@ export const FINGER_DIE_GAP_MM=.5;
 
 export function backgaugeSettings(settings={}){
   const separationMm=settings.separationMm??100,centerYmm=settings.centerYmm??0;
-  if(!Number.isFinite(separationMm)||separationMm<51||!Number.isFinite(centerYmm))throw new RangeError('La separación de referencia de los fingers debe ser ≥ 51 mm y su centro debe ser finito.');
+  if(!Number.isFinite(separationMm)||separationMm<51||!Number.isFinite(centerYmm))throw new RangeError('La separaciÃ³n de referencia de los fingers debe ser â‰¥ 51 mm y su centro debe ser finito.');
   return{separationMm,centerYmm,stationY:[centerYmm-separationMm/2,centerYmm+separationMm/2],
     calibrated:false,automaticYMotion:false,travelLimitsVerified:false};
 }
@@ -176,6 +176,36 @@ export function planBackgauge(args){
       return{...r,layout:'TWO_FINGERS',partWidthMm:auto.partWidthMm,fingerWidthMm:auto.fingerWidthMm,widestSpacing:true};
   }
   return planBackgaugeAt(args);
+}
+/** Optional layout: both fingers on the rear edge of one panel (the flange
+ * being bent), widest spacing first. Accepted only when every finger stops
+ * on that panel; returns null otherwise. Same collision check as planBackgauge. */
+export function planBackgaugeOnPanel(args,panelId,maxTries=8){
+  const {scene,definition,settings={}}=args;
+  const auto=autoFingerLayout(scene.bodies,definition,settings.fingerGapMm??FINGER_GAP_MM);
+  if(auto?.layout!=='TWO_FINGERS')return null;
+  const bodyId=`panel:${panelId}`,own=scene.bodies.filter(b=>b.id===bodyId);
+  if(!own.length)return null;
+  const face=definition.contactFeatures.lower,c=(face.minY+face.maxY)/2,w=(face.maxY-face.minY)/2,min=auto.separationMm;
+  const spans=rearEdgeSpans(own),pairs=[];
+  for(let i=0;i<spans.length;i++)for(let j=spans.length-1;j>=i;j--){
+    const yl=spans[i].minY+w,yr=spans[j].maxY-w;
+    if(yr-yl>=min-1e-6)pairs.push([yl,yr]);
+  }
+  pairs.sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]));
+  // Flange narrower than the minimum spacing: one finger centred on it, the
+  // other one off it (it must not become a stop on another panel).
+  for(const s of [...spans].sort((a,b)=>(b.maxY-b.minY)-(a.maxY-a.minY))){
+    const mid=(s.minY+s.maxY)/2;
+    if(s.maxY-s.minY>=2*w-1e-6)pairs.push([mid,mid+min],[mid-min,mid]);
+  }
+  for(const [yl,yr]of pairs.slice(0,maxTries)){
+    const r=planBackgaugeAt({...args,settings:{...settings,fixedStations:true,separationMm:yr-yl,centerYmm:(yl+yr)/2-c}});
+    const used=r.contacts.filter(k=>k.used);
+    if(r.status==='SAMPLE_CLEAR'&&used.length>0&&used.every(k=>k.witness?.bodyId===bodyId))
+      return{...r,layout:'TWO_FINGERS',partWidthMm:auto.partWidthMm,fingerWidthMm:auto.fingerWidthMm,widestSpacing:true,onPanelId:panelId};
+  }
+  return null;
 }
 function planBackgaugeAt({scene,definition,settings={},park=parkingPose(scene.bodies),stepMm=2,clearanceMm=.15}){
   const auto=settings.fixedStations?null:autoFingerLayout(scene.bodies,definition,settings.fingerGapMm??FINGER_GAP_MM);
